@@ -1,0 +1,120 @@
+BASIC SYNTAX:
+=============
+CREATE CONTINUOUS QUERY <cq_name> ON <database_name>
+BEGIN
+  <cq_query>
+END
+
+cq_query = SELECT <function[s]> INTO <destination_measurement> FROM <measurement> [WHERE <stuff>] GROUP BY time(<interval>[,<offset>])[,<tag_key[s]>]
+
+NOTES:
+------
+1. The cq_query does not require a time range in a WHERE clause. InfluxDB automatically generates a time range for the cq_query when it executes the CQ. Any user-specified time ranges in the cq_query’s WHERE clause WILL BE IGNORED by the system.
+2. GROUP BY time(<interval>) uses the local servers timestamp interval.
+3. Continuous Queries operate on GROUP BY time(<interval>) & InfluxDB database's preset time boundaries to determine when to execute and what time range to cover in the query.
+4. Continuous Query execution runs a single query for the time range between now() and now() minus the GROUP BY time() interval.
+5. Include GROUP BY * in the Continuous Queries to preserve tags in the destination measurement.
+
+LIMITATIONS OF BASIC SYNTAX:
+----------------------------
+1. Basic syntax do not write any results for a time interval if no data fall within that time range.
+2. Basic syntax does not support using fill() to change the value reported for intervals with no data.
+3. Basic syntax Continuous Queries ignore fill() if it’s included in the CQ query.
+4. By default, all INTO queries convert any tags in the source measurement to fields in the destination measurement.
+
+EXAMPLES:
+---------
+1. Simple:
+CREATE CONTINUOUS QUERY "cq_basic" ON "transportation"
+BEGIN
+  SELECT mean("passengers") INTO "average_passengers" FROM "bus_data" GROUP BY time(1h)
+END
+
+2. Offset of 15 minutes:
+CREATE CONTINUOUS QUERY "cq_basic_offset" ON "transportation"
+BEGIN
+  SELECT mean("passengers") INTO "average_passengers" FROM "bus_data" GROUP BY time(1h,15m)
+END
+
+3. Backreferencing with all attributes (using *):
+CREATE CONTINUOUS QUERY "cq_basic_br" ON "transportation"
+BEGIN
+  SELECT mean(*) INTO "downsampled_transportation"."autogen".:MEASUREMENT FROM /.*/ GROUP BY time(30m),*
+END
+
+ADVANCED SYNTAX:
+================
+CREATE CONTINUOUS QUERY <cq_name> ON <database_name>
+RESAMPLE EVERY <interval> FOR <interval>
+BEGIN
+  <cq_query>
+END
+
+NOTES:
+------
+1. Advanced Syntax Continuous Queries operate on GROUP BY time(<interval>), The information in the RESAMPLE clause & InfluxDB database's preset time boundaries to determine when to execute and what time range to cover in the query.
+2. Advanced Syntax Continuous Queries execute at the same interval as the EVERY interval in the RESAMPLE clause, at the start of InfluxDB’s preset time boundaries.
+3. It runs a single query for the time range between now() and now() minus the FOR interval in the RESAMPLE clause.
+4. The RESAMPLE clause works with either or both of the EVERY and FOR intervals configured.
+5. Advanced Syntax Contniuous Quriess defaults to the relevant basic syntax behavior if the EVERY interval or FOR interval is not provided.
+
+EXAMPLES:
+---------
+1. Simple (only EVERY: Will run every 30mins (i.e. 8:00, 8:30, 9:00) for the given intersecting time bucket (1Hr i.e. 8:00, 9:00, 10:00 -> This will override/replace values calculated for 8:30, 9:30... by the values calculated for 9:00, 10:00...)
+CREATE CONTINUOUS QUERY "cq_advanced_every" ON "transportation"
+RESAMPLE EVERY 30m
+BEGIN
+  SELECT mean("passengers") INTO "average_passengers" FROM "bus_data" GROUP BY time(1h)
+END
+
+NOTE:
+~~~~~
+If the EVERY interval is greater than the GROUP BY time() interval, the Continuous Query ignores the GROUP BY time() interval and uses the EVERY interval for calculations as well
+
+2. Simple (only FOR: To specify the length of the Continuous Query's time range -> This will calculate 2 data point values every 30mins for the last 1hour, hence for a single time interval, results are calculated twice)
+CREATE CONTINUOUS QUERY "cq_advanced_for" ON "transportation"
+RESAMPLE FOR 1h
+BEGIN
+  SELECT mean("passengers") INTO "average_passengers" FROM "bus_data" GROUP BY time(30m)
+END
+
+3. Simple (EVERY and FOR: Runs Continuous Queries every 'EVERY' interval for the last 'FOR' interval. Also as GROUP BY time(30m) -> It will calculate the mean() for every 30 mins i.e. 3 records created per run)
+CREATE CONTINUOUS QUERY "cq_advanced_every_for" ON "transportation"
+RESAMPLE EVERY 1h FOR 90m
+BEGIN
+  SELECT mean("passengers") INTO "average_passengers" FROM "bus_data" GROUP BY time(30m)
+END
+
+NOTE:
+~~~~~
+The FOR interval SHOULD NOT be less than EVERY / GROUP BY time() intervals. Else "error parsing query: FOR duration must be >= GROUP BY time duration: must be a minimum of <minimum-allowable-interval> got <user-specified-interval>" error will be encountered.
+
+4. Filling Empty results (Should be used with FOR. At least one data point must fall within the FOR interval for fill() to operate. Here empty records will be populated with 1000 in destination)
+CREATE CONTINUOUS QUERY "cq_advanced_for_fill" ON "transportation"
+RESAMPLE FOR 2h
+BEGIN
+  SELECT mean("passengers") INTO "average_passengers" FROM "bus_data" GROUP BY time(1h) fill(1000)
+END
+
+NOTE:
+~~~~~
+fill(previous) doesn’t fill the result for a time interval if the previous value is outside the query’s time range.
+
+CONTINUOUS QUERY MANAGEMENT: (Only authorized for Admins)
+=========================================================
+1. List Continuous Queries: List every Continuous Query on an InfluxDB instance.
+Example:
+SHOW CONTINUOUS QUERIES
+
+2. Deleting Continuous Queries: Delete a Continuous Query on an InfluxDB instance.
+Example:
+DROP CONTINUOUS QUERY <cq_name> ON <database_name>
+
+3. Altering Continuous Queries: Altering is not possible for a Continuous Query created. Instead DROP and CREATE again.
+
+4. Statistics:
+If query-stats-enabled is set to true in your influxdb.conf or using the INFLUXDB_CONTINUOUS_QUERIES_QUERY_STATS_ENABLED environment variable, data will be written to _internal with information about when continuous queries ran and their duration.
+
+USE CASES:
+==========
+https://docs.influxdata.com/influxdb/v1.7/query_language/continuous_queries/#continuous-query-use-cases
