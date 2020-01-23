@@ -13,7 +13,7 @@ NOTES:
 2. GROUP BY time(<interval>) uses the local servers timestamp interval.
 3. Continuous Queries operate on GROUP BY time(<interval>) & InfluxDB database's preset time boundaries to determine when to execute and what time range to cover in the query.
 4. Continuous Query execution runs a single query for the time range between now() and now() minus the GROUP BY time() interval.
-5. Include GROUP BY * in the Continuous Queries to preserve tags in the destination measurement.
+5. Include GROUP BY * in the Continuous Queries to preserve tags in the destination measurement. (https://github.com/influxdata/influxdb.com/issues/126#issuecomment-121987509)
 
 LIMITATIONS OF BASIC SYNTAX:
 ----------------------------
